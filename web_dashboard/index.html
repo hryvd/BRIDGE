@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="HydroSense IoT - ESP32 Smart Water Level Monitor & Optical/Resistive Raindrop Disdrometer Dashboard">
+  <title>HydroSense & PluvioScan IoT | Smart Water & Raindrop Telemetry</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Ambient background glow elements -->
+  <div class="glow-orb orb-1"></div>
+  <div class="glow-orb orb-2"></div>
+  <div class="glow-orb orb-3"></div>
+
+  <!-- Rain Canvas Overlay for Visual Simulation -->
+  <canvas id="rain-canvas"></canvas>
+
+  <div class="app-container">
+    <!-- Header / Navigation Bar -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>HYDROSENSE <span class="accent-text">& PLUVIOSCAN</span></h1>
+          <p class="subtitle">ESP32 3-Tier Hydrological & Raindrop Kinetic Disdrometer</p>
+        </div>
+      </div>
+
+      <div class="connection-bar">
+        <div class="status-badge" id="system-status-badge">
+          <span class="status-dot online"></span>
+          <span id="connection-status-text">ESP32 Online (Live Telemetry)</span>
+        </div>
+
+        <div class="mode-selector">
+          <button class="mode-btn active" id="btn-mode-live" title="Connect directly to ESP32 hardware via IP">
+            <span class="btn-dot"></span> Live ESP32
+          </button>
+          <button class="mode-btn" id="btn-mode-sim" title="Simulate rainfall scenarios and water levels">
+            <span class="btn-dot"></span> Simulation
+          </button>
+        </div>
+
+        <div class="ip-config-container" id="ip-config-box">
+          <input type="text" id="esp32-ip-input" placeholder="192.168.1.150" value="192.168.4.1" aria-label="ESP32 IP Address">
+          <button class="action-btn" id="btn-connect-esp32">Connect</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Top Alert / Weather Banner -->
+    <section class="alert-banner" id="weather-alert-banner">
+      <div class="alert-icon" id="alert-icon-container">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+        </svg>
+      </div>
+      <div class="alert-content">
+        <h4 id="alert-title">System Operational - Safe Hydrological State</h4>
+        <p id="alert-desc">Normal baseline water retention. Rain sensor surface dry. Monitoring transient raindrop impacts.</p>
+      </div>
+      <div class="alert-meta">
+        <span class="badge" id="rain-category-badge">NO RAIN</span>
+        <span class="badge" id="flood-risk-badge">SAFE</span>
+      </div>
+    </section>
+
+    <!-- Main Grid Dashboard -->
+    <main class="dashboard-grid">
+
+      <!-- Column 1: 3-Tier Water Level Reservoir -->
+      <section class="card water-level-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h3>Water Level Monitor</h3>
+            <span class="card-subtitle">3 Independent Resistive Tier Sensors</span>
+          </div>
+          <span class="live-pill">3-TIER ACTIVE</span>
+        </div>
+
+        <div class="reservoir-wrapper">
+          <!-- Graphical Reservoir Tank -->
+          <div class="tank-container">
+            <div class="tank-measure-ruler">
+              <span class="ruler-mark" style="top: 0%;">100% (High / Overflow)</span>
+              <span class="ruler-mark" style="top: 33%;">66% (Medium / Caution)</span>
+              <span class="ruler-mark" style="top: 66%;">33% (Low / Baseline)</span>
+              <span class="ruler-mark" style="top: 98%;">0% (Empty)</span>
+            </div>
+
+            <div class="tank-liquid" id="tank-liquid-fill" style="height: 42%;">
+              <div class="wave wave1"></div>
+              <div class="wave wave2"></div>
+              <div class="wave wave3"></div>
+            </div>
+
+            <!-- Sensor Level Marker Overlays -->
+            <div class="sensor-marker high" id="marker-s3" style="bottom: 75%;">
+              <span class="marker-dot"></span>
+              <span class="marker-label">Sensor 3 (High Overflow - GPIO 32)</span>
+              <span class="marker-val" id="val-s3">OFF</span>
+            </div>
+            <div class="sensor-marker mid" id="marker-s2" style="bottom: 45%;">
+              <span class="marker-dot"></span>
+              <span class="marker-label">Sensor 2 (Medium - GPIO 35)</span>
+              <span class="marker-val" id="val-s2">ACTIVE</span>
+            </div>
+            <div class="sensor-marker low" id="marker-s1" style="bottom: 15%;">
+              <span class="marker-dot"></span>
+              <span class="marker-label">Sensor 1 (Low Baseline - GPIO 34)</span>
+              <span class="marker-val" id="val-s1">ACTIVE</span>
+            </div>
+          </div>
+
+          <!-- Numerical Readout -->
+          <div class="reservoir-readouts">
+            <div class="big-metric">
+              <span class="metric-value" id="total-water-pct">42</span>
+              <span class="metric-unit">%</span>
+            </div>
+            <div class="metric-state-tag" id="water-state-tag">MODERATE LEVEL</div>
+
+            <!-- Breakdown list -->
+            <div class="tier-breakdown-list">
+              <div class="tier-item" id="tier-item-3">
+                <div class="tier-info">
+                  <span class="tier-name">Tier 3 (High Danger)</span>
+                  <span class="tier-adc" id="tier-3-raw">ADC: 120 / 4095</span>
+                </div>
+                <div class="tier-bar-bg"><div class="tier-bar-fill" id="tier-3-bar" style="width: 5%;"></div></div>
+              </div>
+
+              <div class="tier-item" id="tier-item-2">
+                <div class="tier-info">
+                  <span class="tier-name">Tier 2 (Medium Warning)</span>
+                  <span class="tier-adc" id="tier-2-raw">ADC: 2450 / 4095</span>
+                </div>
+                <div class="tier-bar-bg"><div class="tier-bar-fill" id="tier-2-bar" style="width: 60%;"></div></div>
+              </div>
+
+              <div class="tier-item" id="tier-item-1">
+                <div class="tier-info">
+                  <span class="tier-name">Tier 1 (Low Reservoir)</span>
+                  <span class="tier-adc" id="tier-1-raw">ADC: 3820 / 4095</span>
+                </div>
+                <div class="tier-bar-bg"><div class="tier-bar-fill" id="tier-1-bar" style="width: 95%;"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Column 2: Raindrop Kinetic Disdrometer (Droplet Diameter & Intensity) -->
+      <section class="card rain-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h3>Rainfall & Droplet Disdrometer</h3>
+            <span class="card-subtitle">Sensor 4 (High-Speed Impulse Sampling - GPIO 33)</span>
+          </div>
+          <span class="live-pill pluvio-pill">DISDROMETER AI</span>
+        </div>
+
+        <div class="rain-metrics-grid">
+          <!-- Primary Metric: Estimated Droplet Diameter -->
+          <div class="metric-box diameter-box">
+            <div class="metric-icon-bubble blue">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="4"></circle>
+                <line x1="4.93" y1="4.93" x2="19.07" y2="19.07"></line>
+              </svg>
+            </div>
+            <div class="metric-details">
+              <span class="box-label">Estimated Droplet Diameter (D)</span>
+              <div class="big-metric-row">
+                <span class="metric-value blue-glow" id="drop-diameter-val">2.8</span>
+                <span class="metric-unit">mm</span>
+              </div>
+              <span class="box-subtext" id="drop-diameter-class">Medium Convective Droplet</span>
+            </div>
+            <!-- Droplet Visual Sphere Representation -->
+            <div class="droplet-visual-wrapper">
+              <div class="droplet-sphere" id="droplet-sphere-visual" style="transform: scale(0.65);">
+                <div class="droplet-shine"></div>
+              </div>
+              <span class="scale-note">Relative Impact Area</span>
+            </div>
+          </div>
+
+          <!-- Secondary Metric: Rain Rate / Intensity -->
+          <div class="metric-box rainrate-box">
+            <div class="metric-icon-bubble cyan">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 16.2A4.5 4.5 0 0 0 17.5 8h-1.8A7 7 0 1 0 4 14.9"></path>
+                <path d="M8 19v2m4-3v4m4-4v2"></path>
+              </svg>
+            </div>
+            <div class="metric-details">
+              <span class="box-label">Precipitation Rate</span>
+              <div class="big-metric-row">
+                <span class="metric-value cyan-glow" id="rain-rate-val">8.4</span>
+                <span class="metric-unit">mm/h</span>
+              </div>
+              <span class="box-subtext" id="rain-rate-classification">Moderate Steady Rain</span>
+            </div>
+          </div>
+
+          <!-- Third Metric: Droplet Cadence / Frequency -->
+          <div class="metric-box frequency-box">
+            <div class="metric-icon-bubble purple">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+              </svg>
+            </div>
+            <div class="metric-details">
+              <span class="box-label">Impact Strike Rate</span>
+              <div class="big-metric-row">
+                <span class="metric-value purple-glow" id="strike-rate-val">142</span>
+                <span class="metric-unit">drops/min</span>
+              </div>
+              <span class="box-subtext" id="strike-rate-subtext">Peak impulse: 620 mV (ΔG)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Droplet Size Spectrum Histogram (Marshall-Palmer Distribution) -->
+        <div class="spectrum-container">
+          <div class="spectrum-header">
+            <h4>Droplet Size Spectrum (Distribution Bins)</h4>
+            <span class="spectrum-info">Marshall-Palmer Model DSD</span>
+          </div>
+          <div class="spectrum-bars">
+            <div class="spectrum-col">
+              <div class="bar-track"><div class="bar-fill" id="bin-mist" style="height: 15%;"></div></div>
+              <span class="col-val" id="bin-mist-pct">15%</span>
+              <span class="col-lbl">&lt;1.0mm<br>Mist</span>
+            </div>
+            <div class="spectrum-col">
+              <div class="bar-track"><div class="bar-fill" id="bin-drizzle" style="height: 35%;"></div></div>
+              <span class="col-val" id="bin-drizzle-pct">35%</span>
+              <span class="col-lbl">1-2mm<br>Drizzle</span>
+            </div>
+            <div class="spectrum-col active-bin">
+              <div class="bar-track"><div class="bar-fill" id="bin-moderate" style="height: 65%;"></div></div>
+              <span class="col-val" id="bin-moderate-pct">65%</span>
+              <span class="col-lbl">2-3mm<br>Moderate</span>
+            </div>
+            <div class="spectrum-col">
+              <div class="bar-track"><div class="bar-fill" id="bin-heavy" style="height: 25%;"></div></div>
+              <span class="col-val" id="bin-heavy-pct">25%</span>
+              <span class="col-lbl">3-4.5mm<br>Heavy</span>
+            </div>
+            <div class="spectrum-col">
+              <div class="bar-track"><div class="bar-fill" id="bin-giant" style="height: 5%;"></div></div>
+              <span class="col-val" id="bin-giant-pct">5%</span>
+              <span class="col-lbl">&gt;4.5mm<br>Violent</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Column 3: Hardware LED Actuator Panel (4 LEDs) -->
+      <section class="card leds-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h3>ESP32 4-LED Indicator Panel</h3>
+            <span class="card-subtitle">Real-Time GPIO Actuator States & Remote Override</span>
+          </div>
+          <span class="live-pill">GPIO SYNC</span>
+        </div>
+
+        <div class="leds-grid">
+          <!-- Green LED -->
+          <div class="led-card green-led-card" id="led-card-green">
+            <div class="led-indicator-glow">
+              <div class="physical-led green" id="led-lamp-green"></div>
+            </div>
+            <div class="led-info">
+              <div class="led-top-row">
+                <span class="led-title">GREEN LED</span>
+                <span class="led-pin">GPIO 25</span>
+              </div>
+              <span class="led-role">System Normal / Water Level Safe</span>
+              <span class="led-state-text" id="led-state-green">ACTIVE (ON)</span>
+            </div>
+          </div>
+
+          <!-- Yellow LED -->
+          <div class="led-card yellow-led-card" id="led-card-yellow">
+            <div class="led-indicator-glow">
+              <div class="physical-led yellow" id="led-lamp-yellow"></div>
+            </div>
+            <div class="led-info">
+              <div class="led-top-row">
+                <span class="led-title">YELLOW LED</span>
+                <span class="led-pin">GPIO 26</span>
+              </div>
+              <span class="led-role">Caution / Medium Water or Light Rain</span>
+              <span class="led-state-text" id="led-state-yellow">ACTIVE (ON)</span>
+            </div>
+          </div>
+
+          <!-- Red LED -->
+          <div class="led-card red-led-card" id="led-card-red">
+            <div class="led-indicator-glow">
+              <div class="physical-led red" id="led-lamp-red"></div>
+            </div>
+            <div class="led-info">
+              <div class="led-top-row">
+                <span class="led-title">RED LED</span>
+                <span class="led-pin">GPIO 27</span>
+              </div>
+              <span class="led-role">Critical Alert / High Flood or Heavy Rain</span>
+              <span class="led-state-text" id="led-state-red">STANDBY (OFF)</span>
+            </div>
+          </div>
+
+          <!-- Blue LED -->
+          <div class="led-card blue-led-card" id="led-card-blue">
+            <div class="led-indicator-glow">
+              <div class="physical-led blue pulse-mode" id="led-lamp-blue"></div>
+            </div>
+            <div class="led-info">
+              <div class="led-top-row">
+                <span class="led-title">BLUE LED</span>
+                <span class="led-pin">GPIO 14</span>
+              </div>
+              <span class="led-role">Rain Active & Droplet Kinetic Flash</span>
+              <span class="led-state-text" id="led-state-blue">PULSING (STROBE)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Logic Mapping Summary -->
+        <div class="led-logic-summary">
+          <h4>Smart Indicator Matrix Logic</h4>
+          <div class="logic-chips">
+            <span class="chip chip-green">🟢 Normal: Low water, no rain</span>
+            <span class="chip chip-yellow">🟡 Caution: Mid water OR Light Rain (D &lt; 2.2mm)</span>
+            <span class="chip chip-red">🔴 Danger: High overflow OR Heavy/Torrential Rain (D &gt; 3.5mm)</span>
+            <span class="chip chip-blue">🔵 Kinetic: Pulses upon each droplet strike, PWM shines with rain rate</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Row 2: Live Historical Telemetry Charts -->
+      <section class="card chart-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h3>Live Telemetry Stream</h3>
+            <span class="card-subtitle">Real-time synchronized depth & rainfall rate time-series</span>
+          </div>
+          <div class="chart-controls">
+            <button class="small-btn active" id="chart-time-30s">30s</button>
+            <button class="small-btn" id="chart-time-60s">60s</button>
+            <button class="small-btn" id="chart-time-5m">5m</button>
+          </div>
+        </div>
+
+        <div class="canvas-container">
+          <canvas id="telemetry-chart" width="800" height="240"></canvas>
+        </div>
+
+        <div class="chart-legend">
+          <div class="legend-item"><span class="legend-dot" style="background:#00d2ff;"></span> Water Level (%)</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#a855f7;"></span> Rain Intensity (mm/h)</div>
+          <div class="legend-item"><span class="legend-dot" style="background:#3b82f6;"></span> Droplet Diameter (mm &times; 10)</div>
+        </div>
+      </section>
+
+      <!-- Row 3: Interactive Simulation Controls (When in Simulation Mode) -->
+      <section class="card simulation-panel" id="simulation-panel">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h3>Interactive Test & Weather Preset Simulator</h3>
+            <span class="card-subtitle">Quickly simulate hardware environmental changes to test LED and UI reaction</span>
+          </div>
+          <span class="sim-badge">TEST BENCH</span>
+        </div>
+
+        <div class="presets-row">
+          <button class="preset-btn" data-preset="clear">☀️ Clear & Dry</button>
+          <button class="preset-btn" data-preset="drizzle">🌦️ Gentle Drizzle (0.8mm drops)</button>
+          <button class="preset-btn active-preset" data-preset="moderate">🌧️ Moderate Rain (2.5mm drops)</button>
+          <button class="preset-btn" data-preset="downpour">⛈️ Heavy Downpour (4.2mm drops)</button>
+          <button class="preset-btn" data-preset="flood">🌊 Flood Emergency (Tank Full)</button>
+        </div>
+
+        <div class="sliders-grid">
+          <div class="slider-group">
+            <div class="slider-header">
+              <label for="sim-water-level">Water Level Tank Volume</label>
+              <span id="sim-water-label">42%</span>
+            </div>
+            <input type="range" id="sim-water-level" min="0" max="100" value="42">
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <label for="sim-rain-rate">Rain Precipitation Rate</label>
+              <span id="sim-rain-label">8.4 mm/h</span>
+            </div>
+            <input type="range" id="sim-rain-rate" min="0" max="80" step="0.5" value="8.4">
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <label for="sim-drop-dia">Droplet Diameter (Disdrometer)</label>
+              <span id="sim-dia-label">2.8 mm</span>
+            </div>
+            <input type="range" id="sim-drop-dia" min="0" max="6.5" step="0.1" value="2.8">
+          </div>
+        </div>
+      </section>
+
+      <!-- Row 4: Diagnostic Event Log & ESP32 System Info -->
+      <section class="card logs-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <h3>System Telemetry Logs & ESP32 Health</h3>
+            <span class="card-subtitle">Serial packets, WiFi RSSI, ADC conversion rates</span>
+          </div>
+          <button class="small-btn" id="btn-clear-logs">Clear Logs</button>
+        </div>
+
+        <div class="system-stats-bar">
+          <div class="stat-pill"><span class="stat-k">ESP32 Chip:</span> <span class="stat-v">Dual-Core Tensilica 240MHz</span></div>
+          <div class="stat-pill"><span class="stat-k">WiFi RSSI:</span> <span class="stat-v" id="stat-rssi">-58 dBm (Strong)</span></div>
+          <div class="stat-pill"><span class="stat-k">Sampling Rate:</span> <span class="stat-v">100 Hz (ADC1)</span></div>
+          <div class="stat-pill"><span class="stat-k">Uptime:</span> <span class="stat-v" id="stat-uptime">02:44:18</span></div>
+        </div>
+
+        <div class="log-stream" id="log-terminal">
+          <div class="log-entry">[INIT] ESP32 HydroSense PluvioScan System Started.</div>
+          <div class="log-entry">[WIFI] Station connected to Local AP (192.168.4.1). Web Server active on port 80.</div>
+          <div class="log-entry">[ADC1] Sensor 1 (34), Sensor 2 (35), Sensor 3 (32), Rain Disdrometer (33) initialized.</div>
+          <div class="log-entry info">[DISDROMETER] Baseline calibrated: 3950 ADC. Peak detection window: 20ms.</div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>HydroSense & PluvioScan IoT System &bull; Designed for ESP32 &bull; 3 Water Level Sensors + 1 Rain Kinetic Disdrometer + 4-LED Indicator</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
