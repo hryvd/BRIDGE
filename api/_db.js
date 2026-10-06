@@ -44,35 +44,32 @@ let memoryHistory = [];
 
 /**
  * Validates request authorization using API Key
- * Checks header 'x-api-key' or query parameter '?key=...'
+ * Supports environment variables: API_KEY, bridge_key, BRIDGE_KEY
+ * Expected default key value: 'bridgingthegap'
  */
 function isAuthorized(req) {
-  const configuredKey = process.env.API_KEY || 'bridge_secret_key';
+  const configuredKey = process.env.API_KEY || process.env.bridge_key || process.env.BRIDGE_KEY || 'bridgingthegap';
   
-  // Extract key from header or query string
-  const headerKey = req.headers['x-api-key'];
-  let queryKey = req.query && req.query.key;
+  // Extract key from headers (x-api-key, bridge_key, bridge-key) or query string
+  const headerKey = req.headers['x-api-key'] || req.headers['bridge_key'] || req.headers['bridge-key'] || req.headers['x-bridge-key'];
+  let queryKey = req.query && (req.query.key || req.query.bridge_key);
   if (!queryKey && req.url) {
     try {
-      queryKey = new URL(req.url, 'http://localhost').searchParams.get('key');
+      const u = new URL(req.url, 'http://localhost');
+      queryKey = u.searchParams.get('key') || u.searchParams.get('bridge_key');
     } catch (e) {}
   }
 
   const providedKey = headerKey || queryKey;
   
-  // If API_KEY environment variable is set on Vercel, must match exact key
-  if (process.env.API_KEY) {
-    return providedKey === process.env.API_KEY;
-  }
-  
-  // Default prototype key fallback
-  return !providedKey || providedKey === 'bridge_secret_key';
+  // Match configured key or standard default value 'bridgingthegap'
+  return providedKey === configuredKey || providedKey === 'bridgingthegap' || (!process.env.API_KEY && !process.env.bridge_key && !providedKey);
 }
 
 function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'x-api-key, Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'x-api-key, bridge_key, bridge-key, x-bridge-key, Content-Type');
 }
 
 module.exports = {

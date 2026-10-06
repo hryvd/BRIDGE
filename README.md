@@ -73,15 +73,15 @@ You can deploy the web dashboard and serverless API to **Vercel** with one click
 3. **Configure API Key (Environment Variables)**:
    - In Vercel, go to **Settings** > **Environment Variables**.
    - Add a key:
-     - **Name**: `API_KEY`
-     - **Value**: Any secret password you choose (e.g., `my_secure_iot_key`).
+     - **Name**: `bridge_key` *(or `API_KEY`)*
+     - **Value**: `bridgingthegap`
 4. **Redeploy**:
    - Go to **Deployments** > click `...` on the latest deployment > **Redeploy**.
 5. **Update your ESP32 Sketch ([`BRIDGE.ino`](BRIDGE.ino))**:
    - In [`BRIDGE.ino`](BRIDGE.ino), set your Vercel address and API key:
      ```cpp
      #define VERCEL_HOST     "your-project.vercel.app"  // (no https://)
-     #define VERCEL_API_KEY  "my_secure_iot_key"        // same secret as in Vercel
+     #define VERCEL_API_KEY  "bridgingthegap"
      ```
    - Re-upload to your ESP32. It will automatically POST live telemetry every 3 seconds!
 

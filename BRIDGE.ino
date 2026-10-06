@@ -41,7 +41,7 @@ const char* AP_PASSWORD   = "watermonitor";
 // Vercel Cloud & API Key Integration
 // -------------------------------------------------------------
 #define VERCEL_HOST       "your-project.vercel.app"  // Replace with your Vercel deployment domain
-#define VERCEL_API_KEY    "bridge_secret_key"        // Must match API_KEY in Vercel Environment Variables
+#define VERCEL_API_KEY    "bridgingthegap"           // Matches bridge_key in Vercel Environment Variables
 #define CLOUD_SYNC_MS     3000UL                     // Push telemetry to Vercel every 3 seconds
 
 WebServer server(80);
@@ -414,6 +414,7 @@ void pushTelemetryToVercel() {
   if (http.begin(httpsClient, url)) {
     http.addHeader("Content-Type", "application/json");
     http.addHeader("x-api-key", VERCEL_API_KEY);
+    http.addHeader("bridge_key", VERCEL_API_KEY);
 
     String json = "{";
     json += "\"water_pct\":" + String(telemetry.waterPercent, 1) + ",";

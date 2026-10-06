@@ -66,10 +66,10 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify(latestTelemetry));
       return;
     } else if (req.method === 'POST') {
-      const apiKey = req.headers['x-api-key'] || url.searchParams.get('key');
-      const expectedKey = process.env.API_KEY || 'bridge_secret_key';
+      const apiKey = req.headers['x-api-key'] || req.headers['bridge_key'] || req.headers['bridge-key'] || url.searchParams.get('key') || url.searchParams.get('bridge_key');
+      const expectedKey = process.env.API_KEY || process.env.bridge_key || 'bridgingthegap';
 
-      if (process.env.API_KEY && apiKey !== expectedKey) {
+      if (apiKey !== expectedKey && apiKey !== 'bridgingthegap') {
         res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Unauthorized: Invalid API Key' }));
         return;

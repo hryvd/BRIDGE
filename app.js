@@ -5,7 +5,7 @@ class HydroSenseDashboard {
   constructor() {
     this.mode = 'cloud'; // 'cloud', 'live', or 'sim'
     this.esp32Ip = localStorage.getItem('bridge_esp32_ip') || '192.168.4.1';
-    this.apiKey = localStorage.getItem('bridge_api_key') || 'bridge_secret_key';
+    this.apiKey = localStorage.getItem('bridge_api_key') || 'bridgingthegap';
     this.cloudHost = localStorage.getItem('bridge_cloud_host') || (window.location.origin.includes('http') ? window.location.origin : '');
     this.pollInterval = null;
 
@@ -239,7 +239,10 @@ class HydroSenseDashboard {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
       const res = await fetch(url, {
-        headers: { 'x-api-key': this.apiKey },
+        headers: {
+          'x-api-key': this.apiKey,
+          'bridge_key': this.apiKey
+        },
         signal: controller.signal
       });
       clearTimeout(timeoutId);
