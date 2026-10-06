@@ -59,21 +59,40 @@ All analog sensors are connected to **ESP32 ADC1** pins to maintain 100% stabili
 
 ---
 
-### 2. Viewing the Web Dashboard
+### 2. Deploying to Vercel (Cloud Telemetry & Upstash Redis)
 
-#### Option A: Direct ESP32 Access
-Open any web browser on your phone, tablet, or PC and navigate to:
-```
-http://<ESP32_IP>/
-```
+You can deploy the web dashboard and serverless API to **Vercel** with one click:
 
-#### Option B: Standalone Web Dashboard
-Open [`web_dashboard/index.html`](web_dashboard/index.html) directly in any web browser, or launch the lightweight local Node.js server:
-```bash
-cd web_dashboard
-node server.js
-```
-Then visit `http://localhost:3000`. You can test both **Live ESP32 telemetry** (enter device IP) or use the **Interactive Weather Simulator** to test custom rain and flood scenarios.
+1. **Import the Repository into Vercel**:
+   - Go to [vercel.com](https://vercel.com) and click **Add New** > **Project**.
+   - Select your GitHub repo `hryvd/BRIDGE` and click **Deploy**.
+2. **Connect Upstash Redis (Storage)**:
+   - In your Vercel project dashboard, click the **Storage** tab.
+   - Click **Create Database** (or Connect from Marketplace) > select **Upstash Redis**.
+   - Keep default names and connect to **Production**, **Preview**, and **Development**.
+3. **Configure API Key (Environment Variables)**:
+   - In Vercel, go to **Settings** > **Environment Variables**.
+   - Add a key:
+     - **Name**: `API_KEY`
+     - **Value**: Any secret password you choose (e.g., `my_secure_iot_key`).
+4. **Redeploy**:
+   - Go to **Deployments** > click `...` on the latest deployment > **Redeploy**.
+5. **Update your ESP32 Sketch ([`BRIDGE.ino`](BRIDGE.ino))**:
+   - In [`BRIDGE.ino`](BRIDGE.ino), set your Vercel address and API key:
+     ```cpp
+     #define VERCEL_HOST     "your-project.vercel.app"  // (no https://)
+     #define VERCEL_API_KEY  "my_secure_iot_key"        // same secret as in Vercel
+     ```
+   - Re-upload to your ESP32. It will automatically POST live telemetry every 3 seconds!
+
+---
+
+### 3. Viewing the Web Dashboard
+
+- **On Vercel**: Visit your deployed URL: `https://your-project.vercel.app/`
+  *(Enter your API key into the top header bar and click **Sync**).*
+- **Locally**: Open [`index.html`](index.html) in your browser, or run `node web_dashboard/server.js` and visit `http://localhost:3000`.
+- **Directly from ESP32**: Visit `http://<ESP32_IP>/` while connected to the same Wi-Fi.
 
 ---
 

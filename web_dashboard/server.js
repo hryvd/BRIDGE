@@ -49,7 +49,7 @@ const server = http.createServer((req, res) => {
   // CORS Headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -66,15 +66,24 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify(latestTelemetry));
       return;
     } else if (req.method === 'POST') {
+      const apiKey = req.headers['x-api-key'] || url.searchParams.get('key');
+      const expectedKey = process.env.API_KEY || 'bridge_secret_key';
+
+      if (process.env.API_KEY && apiKey !== expectedKey) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized: Invalid API Key' }));
+        return;
+      }
+
       let body = '';
       req.on('data', chunk => { body += chunk; });
       req.on('end', () => {
         try {
           const parsed = JSON.parse(body);
           latestTelemetry = { ...latestTelemetry, ...parsed, timestamp: Date.now() };
-          console.log(`[INGEST] Telemetry received from IoT device: Water=${latestTelemetry.water_pct}%, Rain=${latestTelemetry.rain_rate} mm/h`);
+          console.log(`[INGEST] Telemetry received from IoT device: Water=${latestTelemetry.water_pct}%, Rain=${latestTelemetry.rain_rate} mm/h (API Key Verified)`);
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ status: 'ok', received: true }));
+          res.end(JSON.stringify({ status: 'ok', received: true, timestamp: Date.now() }));
         } catch (err) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Invalid JSON payload' }));

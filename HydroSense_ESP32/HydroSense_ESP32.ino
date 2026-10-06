@@ -1,95 +1,91 @@
 /*
  * =========================================================================================
- * HYDROSENSE & PLUVIOSCAN IOT SYSTEM FOR ESP32
+ * PROJECT BRIDGE: HYDROSENSE & PLUVIOSCAN IOT SYSTEM FOR ESP32
  * =========================================================================================
- * Features:
- *   - 3 Water Level Sensors (Tier 1 Low, Tier 2 Mid, Tier 3 High / Overflow)
- *   - 1 High-Speed Raindrop Kinetic Disdrometer (Sensor 4) for:
- *       * Real-time raindrop impact detection
- *       * Droplet diameter estimation (0.5 mm to 6.5 mm)
- *       * Rain intensity & precipitation rate (mm/h)
- *       * Marshall-Palmer Raindrop Size Distribution (DSD)
- *   - 4 Smart LED Status Indicators (Green, Yellow, Red, Blue)
- *   - Embedded Wi-Fi Web Server & REST API (/api/telemetry, /api/leds)
- *   - AP Fallback Mode ("HydroSense-AP") for instant out-of-the-box configuration
+ * 3 Water Level Sensors (Tier 1 Low, Tier 2 Mid, Tier 3 High / Overflow)
+ * 1 Raindrop Kinetic Disdrometer (Sensor 4) for Raindrop Diameter & Intensity Prediction
+ * 4 Status LEDs (Green, Yellow, Red, Blue)
+ * Embedded Wi-Fi Web Server & REST API (/api/telemetry, /api/leds)
  * =========================================================================================
  */
 
 #include <WiFi.h>
 #include <WebServer.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 
-// ==========================================
-// 1. PIN DEFINITIONS (All ADC pins on ADC1!)
-// Note: ESP32 ADC2 cannot be used with WiFi!
-// ==========================================
-const int PIN_WATER_LOW   = 34; // Water Level Tier 1 (Low Baseline - ADC1_CH6)
+// -------------------------------------------------------------
+// Pin Definitions (Using ADC1 Channels - WiFi Safe!)
+// -------------------------------------------------------------
+const int PIN_WATER_LOW   = 34; // Water Level Tier 1 (Low - ADC1_CH6)
 const int PIN_WATER_MID   = 35; // Water Level Tier 2 (Medium - ADC1_CH7)
-const int PIN_WATER_HIGH  = 32; // Water Level Tier 3 (High Overflow - ADC1_CH4)
-const int PIN_RAIN_SENSOR = 33; // Sensor 4: Raindrop Kinetic Disdrometer (ADC1_CH5)
+const int PIN_WATER_HIGH  = 32; // Water Level Tier 3 (High - ADC1_CH4)
+const int PIN_RAIN_SENSOR = 33; // Raindrop Disdrometer (ADC1_CH5)
 
 // 4 LED Output Pins
-const int PIN_LED_GREEN   = 25; // System Normal / Safe Water Level
+const int PIN_LED_GREEN   = 25; // Normal / Safe Level Indicator
 const int PIN_LED_YELLOW  = 26; // Caution / Mid Level or Light Rain
-const int PIN_LED_RED     = 27; // Danger Alert / Overflow or Heavy Rain
-const int PIN_LED_BLUE    = 14; // Rain Activity & Droplet Impact Pulse
+const int PIN_LED_RED     = 27; // Danger / Overflow Alert or Heavy Rain
+const int PIN_LED_BLUE    = 14; // Rain Detected & Droplet Impact Strobe
 
-// ==========================================
-// 2. NETWORK CREDENTIALS
-// ==========================================
-const char* WIFI_SSID     = "YOUR_WIFI_SSID";     // Change to your WiFi name
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"; // Change to your WiFi password
+// -------------------------------------------------------------
+// WiFi Credentials & AP Fallback
+// -------------------------------------------------------------
+const char* WIFI_SSID     = "YOUR_WIFI_SSID";     // Replace with your WiFi SSID
+const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"; // Replace with your WiFi Password
 
-// SoftAP Fallback (connect to this if local WiFi is unavailable)
 const char* AP_SSID       = "HydroSense-AP";
 const char* AP_PASSWORD   = "watermonitor";
 
-WebServer server(80);
+// -------------------------------------------------------------
+// Vercel Cloud & API Key Integration
+// -------------------------------------------------------------
+#define VERCEL_HOST       "your-project.vercel.app"  // Replace with your Vercel deployment domain
+#define VERCEL_API_KEY    "bridge_secret_key"        // Must match API_KEY in Vercel Environment Variables
+#define CLOUD_SYNC_MS     3000UL                     // Push telemetry to Vercel every 3 seconds
 
-// ==========================================
-// 3. TELEMETRY & ALGORITHM STATE
-// ==========================================
+WebServer server(80);
+WiFiClientSecure httpsClient;
+unsigned long lastCloudSync = 0;
+
+// -------------------------------------------------------------
+// Telemetry State
+// -------------------------------------------------------------
 struct TelemetryData {
-  // Water Levels
   int   rawLow;
   int   rawMid;
   int   rawHigh;
   float waterPercent;
   
-  // Raindrop Disdrometer Metrics
   int   rawRain;
   float rainBaseline;
   float peakImpulseMv;
-  float dropDiameterMm;    // Estimated raindrop diameter (0.5mm - 6.5mm)
+  float dropDiameterMm;    // Estimated raindrop diameter (0.5 - 6.5 mm)
   float avgDiameterMm;
   int   dropCountLastMinute;
-  float rainRateMmH;       // Precipitation rate in mm/h
-  String rainClass;        // "None", "Light Rain", "Moderate Rain", "Heavy Rain", "Violent"
+  float rainRateMmH;       // Precipitation rate (mm/h)
+  String rainClass;        // "Dry", "Light Rain", "Moderate Rain", "Heavy Rain", "Torrential"
   
-  // LED States
   bool  ledGreen;
   bool  ledYellow;
   bool  ledRed;
   bool  ledBlue;
   
-  // System Health
   int   rssi;
   unsigned long uptimeSeconds;
 } telemetry;
 
-// Disdrometer High-Speed Sampling Window variables
-unsigned long lastSampleTime    = 0;
+unsigned long lastSampleTime     = 0;
 unsigned long lastDropStrikeTime = 0;
-unsigned long last1SecWindow    = 0;
-unsigned long last1MinWindow    = 0;
-int currentMinuteDropCount      = 0;
-float accumulatedDropDiameter   = 0.0;
+unsigned long last1SecWindow     = 0;
+unsigned long last1MinWindow     = 0;
+int currentMinuteDropCount       = 0;
+float accumulatedDropDiameter    = 0.0;
+unsigned long blueLedOffTime     = 0;
 
-// Droplet Strike LED strobe timer
-unsigned long blueLedOffTime    = 0;
-
-// ==========================================
-// 4. EMBEDDED WEB DASHBOARD HTML
-// ==========================================
+// -------------------------------------------------------------
+// Embedded Web Dashboard HTML (Served directly by ESP32)
+// -------------------------------------------------------------
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
@@ -203,15 +199,14 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 </html>
 )rawliteral";
 
-// ==========================================
-// 5. REST API HANDLERS
-// ==========================================
+// -------------------------------------------------------------
+// REST API Handlers
+// -------------------------------------------------------------
 void handleRoot() {
   server.send(200, "text/html", INDEX_HTML);
 }
 
 void handleTelemetryApi() {
-  // Build JSON response
   String json = "{";
   json += "\"water_pct\":" + String(telemetry.waterPercent, 1) + ",";
   json += "\"s1_adc\":" + String(telemetry.rawLow) + ",";
@@ -235,67 +230,52 @@ void handleTelemetryApi() {
   server.send(200, "application/json", json);
 }
 
-// ==========================================
-// 6. DISDROMETER & DROPLET DIAMETER PHYSICS
-// ==========================================
-/*
- * Raindrop Impact Theory:
- * When a raindrop strikes the resistive sensor face:
- * 1. Terminal velocity impact causes instantaneous spreading over conductive tracks.
- * 2. Instantaneous peak conductance rise (delta ADC) is directly proportional
- *    to droplet contact surface area: A_contact ~ pi * (D/2)^2.
- * 3. Droplet diameter D can be estimated from kinetic impact conductance peak:
- *      D_est = D_min + (D_max - D_min) * (deltaADC / ADC_MAX)^0.55
- *    Yielding D in the range 0.5mm (drizzle) to 6.5mm (severe storm).
- */
+// -------------------------------------------------------------
+// Disdrometer Droplet Diameter & Kinetic Sampling
+// -------------------------------------------------------------
 void processDisdrometerSampling() {
   int currentAdc = analogRead(PIN_RAIN_SENSOR);
   telemetry.rawRain = currentAdc;
 
-  // Slow baseline drift tracking when plate is resting
+  // Slow baseline drift compensation
   if (abs(currentAdc - telemetry.rainBaseline) < 40) {
     telemetry.rainBaseline = (telemetry.rainBaseline * 0.98) + (currentAdc * 0.02);
   }
 
-  // Detect transient impact pulse: a sudden conductance rise above baseline
   int deltaAdc = currentAdc - (int)telemetry.rainBaseline;
 
-  // Threshold for individual raindrop strike (e.g. > 80 ADC ticks above baseline)
-  if (deltaAdc > 80 && (millis() - lastDropStrikeTime > 25)) { // 25ms debounce between drop impacts
+  // Individual raindrop strike trigger (>80 ADC ticks above baseline)
+  if (deltaAdc > 80 && (millis() - lastDropStrikeTime > 25)) {
     lastDropStrikeTime = millis();
     currentMinuteDropCount++;
 
-    // Calculate estimated raindrop diameter in mm
-    // Clamped between 0.5 mm (mist) and 6.5 mm (giant thunderstorm droplet)
+    // Estimated raindrop diameter: D = 0.5 + 6.0 * (delta / max)^0.55 mm
     float normalizedImpulse = constrain((float)deltaAdc / 3000.0f, 0.0f, 1.0f);
     float estimatedDiameter = 0.5f + (6.0f * pow(normalizedImpulse, 0.55f));
     
     telemetry.dropDiameterMm = estimatedDiameter;
     accumulatedDropDiameter += estimatedDiameter;
-    telemetry.peakImpulseMv  = (deltaAdc / 4095.0f) * 3300.0f; // in millivolts
+    telemetry.peakImpulseMv  = (deltaAdc / 4095.0f) * 3300.0f;
 
-    // Pulse Blue LED for 40ms on each droplet strike
+    // Flash Blue LED on droplet strike
     digitalWrite(PIN_LED_BLUE, HIGH);
     blueLedOffTime = millis() + 40;
   }
 
-  // Turn off Blue LED pulse after duration
   if (blueLedOffTime > 0 && millis() > blueLedOffTime && !telemetry.ledBlue) {
     digitalWrite(PIN_LED_BLUE, LOW);
     blueLedOffTime = 0;
   }
 }
 
-// ==========================================
-// 7. WATER LEVEL 3-TIER SENSOR FUSION
-// ==========================================
+// -------------------------------------------------------------
+// 3-Tier Water Level Fusion
+// -------------------------------------------------------------
 void processWaterLevelSensors() {
   telemetry.rawLow  = analogRead(PIN_WATER_LOW);
   telemetry.rawMid  = analogRead(PIN_WATER_MID);
   telemetry.rawHigh = analogRead(PIN_WATER_HIGH);
 
-  // Progressive tier fusion:
-  // Each tier represents ~33.3% of the reservoir depth
   float t1 = constrain((float)telemetry.rawLow  / 3500.0f, 0.0f, 1.0f) * 33.33f;
   float t2 = constrain((float)telemetry.rawMid  / 3500.0f, 0.0f, 1.0f) * 33.33f;
   float t3 = constrain((float)telemetry.rawHigh / 3500.0f, 0.0f, 1.0f) * 33.34f;
@@ -303,16 +283,15 @@ void processWaterLevelSensors() {
   telemetry.waterPercent = t1 + t2 + t3;
 }
 
-// ==========================================
-// 8. RAIN CLASSIFICATION & LED MATRIX LOGIC
-// ==========================================
+// -------------------------------------------------------------
+// Rain Classification & LED Indicator Logic
+// -------------------------------------------------------------
 void updateClassificationsAndLeds() {
   telemetry.dropCountLastMinute = currentMinuteDropCount;
   
   if (currentMinuteDropCount > 0) {
     telemetry.avgDiameterMm = accumulatedDropDiameter / currentMinuteDropCount;
-    // Rainfall rate in mm/h using Marshall-Palmer approximation:
-    // Rain Rate R = k * (drops/min) * (avgDiameter)^2.2
+    // Precipitation rate R (mm/h) based on Marshall-Palmer parameters
     telemetry.rainRateMmH = (currentMinuteDropCount * 0.06f) * pow(telemetry.avgDiameterMm, 1.8f);
   } else {
     telemetry.rainRateMmH = 0.0f;
@@ -320,7 +299,7 @@ void updateClassificationsAndLeds() {
     telemetry.dropDiameterMm = 0.0f;
   }
 
-  // Categorize Rainfall
+  // Rain category
   if (telemetry.rainRateMmH == 0.0f) {
     telemetry.rainClass = "Dry (No Rain)";
   } else if (telemetry.rainRateMmH < 2.5f) {
@@ -333,13 +312,7 @@ void updateClassificationsAndLeds() {
     telemetry.rainClass = "Torrential Storm";
   }
 
-  // ------------------------------------------
-  // LED Logic Rules:
-  // - GREEN:  Safe / Low Water (< 50%) AND No Heavy Rain
-  // - YELLOW: Caution / Mid Water (>= 33%) OR Light/Moderate Rain (> 0.5 mm/h)
-  // - RED:    Danger / High Overflow (>= 75%) OR Heavy Rain (>= 25 mm/h)
-  // - BLUE:   Rain active (Continuous glow or pulse during rain)
-  // ------------------------------------------
+  // 4-LED Indicator rules
   bool isWaterLow   = (telemetry.waterPercent < 55.0f);
   bool isWaterMid   = (telemetry.waterPercent >= 33.0f && telemetry.waterPercent < 75.0f);
   bool isWaterHigh  = (telemetry.waterPercent >= 75.0f);
@@ -360,109 +333,140 @@ void updateClassificationsAndLeds() {
   }
 }
 
-// ==========================================
-// 9. SETUP & INITIALIZATION
-// ==========================================
+// -------------------------------------------------------------
+// Setup & Configuration
+// -------------------------------------------------------------
 void setup() {
   Serial.begin(115200);
   delay(500);
-  Serial.println("\n=============================================");
-  Serial.println("  HYDROSENSE & PLUVIOSCAN IOT SYSTEM SETUP  ");
-  Serial.println("=============================================");
+  Serial.println("\n--- Project BRIDGE: HydroSense & PluvioScan System ---");
 
-  // Initialize LED Output Pins
+  // Output LEDs
   pinMode(PIN_LED_GREEN, OUTPUT);
   pinMode(PIN_LED_YELLOW, OUTPUT);
   pinMode(PIN_LED_RED, OUTPUT);
   pinMode(PIN_LED_BLUE, OUTPUT);
 
-  // Self-test LED sequence on boot
-  digitalWrite(PIN_LED_GREEN, HIGH); delay(150); digitalWrite(PIN_LED_GREEN, LOW);
-  digitalWrite(PIN_LED_YELLOW, HIGH); delay(150); digitalWrite(PIN_LED_YELLOW, LOW);
-  digitalWrite(PIN_LED_RED, HIGH); delay(150); digitalWrite(PIN_LED_RED, LOW);
-  digitalWrite(PIN_LED_BLUE, HIGH); delay(150); digitalWrite(PIN_LED_BLUE, LOW);
+  // Boot indicator sequence
+  digitalWrite(PIN_LED_GREEN, HIGH); delay(120); digitalWrite(PIN_LED_GREEN, LOW);
+  digitalWrite(PIN_LED_YELLOW, HIGH); delay(120); digitalWrite(PIN_LED_YELLOW, LOW);
+  digitalWrite(PIN_LED_RED, HIGH); delay(120); digitalWrite(PIN_LED_RED, LOW);
+  digitalWrite(PIN_LED_BLUE, HIGH); delay(120); digitalWrite(PIN_LED_BLUE, LOW);
 
-  // Configure ADC Pins (Inputs)
+  // Input Sensors
   pinMode(PIN_WATER_LOW, INPUT);
   pinMode(PIN_WATER_MID, INPUT);
   pinMode(PIN_WATER_HIGH, INPUT);
   pinMode(PIN_RAIN_SENSOR, INPUT);
 
-  // Calibrate initial Rain Sensor baseline
+  // Baseline calibration
   int sum = 0;
   for (int i = 0; i < 30; i++) {
     sum += analogRead(PIN_RAIN_SENSOR);
     delay(10);
   }
   telemetry.rainBaseline = sum / 30.0f;
-  Serial.print("Rain Disdrometer Baseline ADC: ");
-  Serial.println(telemetry.rainBaseline);
 
-  // Connect to Wi-Fi
-  Serial.print("Connecting to Wi-Fi SSID: ");
-  Serial.println(WIFI_SSID);
+  // Wi-Fi
+  Serial.print("Connecting to: "); Serial.println(WIFI_SSID);
   WiFi.mode(WIFI_AP_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-  unsigned long startWifi = millis();
-  while (WiFi.status() != WL_CONNECTED && (millis() - startWifi < 10000)) {
-    delay(300);
+  unsigned long startT = millis();
+  while (WiFi.status() != WL_CONNECTED && (millis() - startT < 8000)) {
+    delay(250);
     Serial.print(".");
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\n[WiFi] Connected successfully!");
-    Serial.print("[WiFi] IP Address: ");
+    Serial.print("\nWiFi Connected! IP: ");
     Serial.println(WiFi.localIP());
   } else {
-    Serial.println("\n[WiFi] Could not connect to station. Launching SoftAP...");
+    Serial.println("\nWiFi unreachable. Starting SoftAP 'HydroSense-AP'...");
     WiFi.softAP(AP_SSID, AP_PASSWORD);
-    Serial.print("[SoftAP] Access Point Started. SSID: ");
-    Serial.println(AP_SSID);
-    Serial.print("[SoftAP] Connect and browse to: http://");
+    Serial.print("SoftAP IP: ");
     Serial.println(WiFi.softAPIP());
   }
 
-  // Setup Web Server Routes
   server.on("/", handleRoot);
   server.on("/api/telemetry", handleTelemetryApi);
   server.begin();
-  Serial.println("[HTTP] Embedded Web Server started on port 80.");
+  Serial.println("Web server started.");
 }
 
-// ==========================================
-// 10. MAIN LOOP (Non-blocking state machine)
-// ==========================================
+// -------------------------------------------------------------
+// Vercel Telemetry Push Client (HTTPS)
+// -------------------------------------------------------------
+void pushTelemetryToVercel() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (millis() - lastCloudSync < CLOUD_SYNC_MS) return;
+  lastCloudSync = millis();
+
+  if (String(VERCEL_HOST).indexOf("your-project") >= 0) {
+    // Placeholder domain still present, skip cloud push
+    return;
+  }
+
+  httpsClient.setInsecure(); // Accept Vercel SSL certificate
+  HTTPClient http;
+  String url = "https://" + String(VERCEL_HOST) + "/api/telemetry";
+
+  if (http.begin(httpsClient, url)) {
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("x-api-key", VERCEL_API_KEY);
+
+    String json = "{";
+    json += "\"water_pct\":" + String(telemetry.waterPercent, 1) + ",";
+    json += "\"s1_adc\":" + String(telemetry.rawLow) + ",";
+    json += "\"s2_adc\":" + String(telemetry.rawMid) + ",";
+    json += "\"s3_adc\":" + String(telemetry.rawHigh) + ",";
+    json += "\"rain_rate\":" + String(telemetry.rainRateMmH, 2) + ",";
+    json += "\"drop_diameter\":" + String(telemetry.dropDiameterMm, 2) + ",";
+    json += "\"avg_diameter\":" + String(telemetry.avgDiameterMm, 2) + ",";
+    json += "\"drops_per_min\":" + String(telemetry.dropCountLastMinute) + ",";
+    json += "\"rain_class\":\"" + telemetry.rainClass + "\",";
+    json += "\"peak_impulse_mv\":" + String(telemetry.peakImpulseMv, 1) + ",";
+    json += "\"led_green\":" + String(telemetry.ledGreen ? "true" : "false") + ",";
+    json += "\"led_yellow\":" + String(telemetry.ledYellow ? "true" : "false") + ",";
+    json += "\"led_red\":" + String(telemetry.ledRed ? "true" : "false") + ",";
+    json += "\"led_blue\":" + String(telemetry.ledBlue ? "true" : "false") + ",";
+    json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
+    json += "\"uptime\":" + String(millis() / 1000);
+    json += "}";
+
+    int httpCode = http.POST(json);
+    if (httpCode > 0) {
+      Serial.printf("[VERCEL] Telemetry pushed to %s -> HTTP %d\n", VERCEL_HOST, httpCode);
+    } else {
+      Serial.printf("[VERCEL] POST failed: %s\n", http.errorToString(httpCode).c_str());
+    }
+    http.end();
+  }
+}
+
+// -------------------------------------------------------------
+// Main Loop
+// -------------------------------------------------------------
 void loop() {
   server.handleClient();
 
-  // 1. High-frequency sampling for raindrop kinetic impulses (every 10ms = 100Hz)
+  // 100 Hz Raindrop Impulse Sampling
   if (millis() - lastSampleTime >= 10) {
     lastSampleTime = millis();
     processDisdrometerSampling();
   }
 
-  // 2. 1-Second periodic hydrological computation
+  // 1 Hz Hydrology & LED State Refresh
   if (millis() - last1SecWindow >= 1000) {
     last1SecWindow = millis();
     processWaterLevelSensors();
     updateClassificationsAndLeds();
-
-    // Telemetry output to Serial Monitor
-    Serial.printf("[TELEMETRY] Water: %.1f%% | Rain: %.1f mm/h (%s) | Drop Dia: %.1f mm | Drops/min: %d | LEDs: [G:%d Y:%d R:%d B:%d]\n",
-      telemetry.waterPercent,
-      telemetry.rainRateMmH,
-      telemetry.rainClass.c_str(),
-      telemetry.dropDiameterMm,
-      currentMinuteDropCount,
-      telemetry.ledGreen,
-      telemetry.ledYellow,
-      telemetry.ledRed,
-      telemetry.ledBlue
-    );
   }
 
-  // 3. 60-Second sliding window reset for drop frequency
+  // Push telemetry to Vercel serverless cloud every CLOUD_SYNC_MS
+  pushTelemetryToVercel();
+
+  // 60-Second sliding window reset
   if (millis() - last1MinWindow >= 60000) {
     last1MinWindow = millis();
     currentMinuteDropCount = 0;

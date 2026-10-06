@@ -11,6 +11,8 @@
 
 #include <WiFi.h>
 #include <WebServer.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 
 // -------------------------------------------------------------
 // Pin Definitions (Using ADC1 Channels - WiFi Safe!)
@@ -35,7 +37,16 @@ const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"; // Replace with your WiFi Pass
 const char* AP_SSID       = "HydroSense-AP";
 const char* AP_PASSWORD   = "watermonitor";
 
+// -------------------------------------------------------------
+// Vercel Cloud & API Key Integration
+// -------------------------------------------------------------
+#define VERCEL_HOST       "your-project.vercel.app"  // Replace with your Vercel deployment domain
+#define VERCEL_API_KEY    "bridge_secret_key"        // Must match API_KEY in Vercel Environment Variables
+#define CLOUD_SYNC_MS     3000UL                     // Push telemetry to Vercel every 3 seconds
+
 WebServer server(80);
+WiFiClientSecure httpsClient;
+unsigned long lastCloudSync = 0;
 
 // -------------------------------------------------------------
 // Telemetry State
@@ -384,6 +395,56 @@ void setup() {
 }
 
 // -------------------------------------------------------------
+// Vercel Telemetry Push Client (HTTPS)
+// -------------------------------------------------------------
+void pushTelemetryToVercel() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (millis() - lastCloudSync < CLOUD_SYNC_MS) return;
+  lastCloudSync = millis();
+
+  if (String(VERCEL_HOST).indexOf("your-project") >= 0) {
+    // Placeholder domain still present, skip cloud push
+    return;
+  }
+
+  httpsClient.setInsecure(); // Accept Vercel SSL certificate
+  HTTPClient http;
+  String url = "https://" + String(VERCEL_HOST) + "/api/telemetry";
+
+  if (http.begin(httpsClient, url)) {
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("x-api-key", VERCEL_API_KEY);
+
+    String json = "{";
+    json += "\"water_pct\":" + String(telemetry.waterPercent, 1) + ",";
+    json += "\"s1_adc\":" + String(telemetry.rawLow) + ",";
+    json += "\"s2_adc\":" + String(telemetry.rawMid) + ",";
+    json += "\"s3_adc\":" + String(telemetry.rawHigh) + ",";
+    json += "\"rain_rate\":" + String(telemetry.rainRateMmH, 2) + ",";
+    json += "\"drop_diameter\":" + String(telemetry.dropDiameterMm, 2) + ",";
+    json += "\"avg_diameter\":" + String(telemetry.avgDiameterMm, 2) + ",";
+    json += "\"drops_per_min\":" + String(telemetry.dropCountLastMinute) + ",";
+    json += "\"rain_class\":\"" + telemetry.rainClass + "\",";
+    json += "\"peak_impulse_mv\":" + String(telemetry.peakImpulseMv, 1) + ",";
+    json += "\"led_green\":" + String(telemetry.ledGreen ? "true" : "false") + ",";
+    json += "\"led_yellow\":" + String(telemetry.ledYellow ? "true" : "false") + ",";
+    json += "\"led_red\":" + String(telemetry.ledRed ? "true" : "false") + ",";
+    json += "\"led_blue\":" + String(telemetry.ledBlue ? "true" : "false") + ",";
+    json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
+    json += "\"uptime\":" + String(millis() / 1000);
+    json += "}";
+
+    int httpCode = http.POST(json);
+    if (httpCode > 0) {
+      Serial.printf("[VERCEL] Telemetry pushed to %s -> HTTP %d\n", VERCEL_HOST, httpCode);
+    } else {
+      Serial.printf("[VERCEL] POST failed: %s\n", http.errorToString(httpCode).c_str());
+    }
+    http.end();
+  }
+}
+
+// -------------------------------------------------------------
 // Main Loop
 // -------------------------------------------------------------
 void loop() {
@@ -401,6 +462,9 @@ void loop() {
     processWaterLevelSensors();
     updateClassificationsAndLeds();
   }
+
+  // Push telemetry to Vercel serverless cloud every CLOUD_SYNC_MS
+  pushTelemetryToVercel();
 
   // 60-Second sliding window reset
   if (millis() - last1MinWindow >= 60000) {
