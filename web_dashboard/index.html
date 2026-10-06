@@ -87,36 +87,73 @@
         </div>
 
         <div class="reservoir-wrapper">
-          <!-- Graphical Reservoir Tank -->
-          <div class="tank-container">
-            <div class="tank-measure-ruler">
-              <span class="ruler-mark" style="top: 0%;">100% (High / Overflow)</span>
-              <span class="ruler-mark" style="top: 33%;">66% (Medium / Caution)</span>
-              <span class="ruler-mark" style="top: 66%;">33% (Low / Baseline)</span>
-              <span class="ruler-mark" style="top: 98%;">0% (Empty)</span>
+          <!-- Graphical Reservoir Tank Gauge Group -->
+          <div class="tank-visual-group">
+            <!-- Left Calibration Scale Ruler -->
+            <div class="tank-scale-axis">
+              <div class="scale-step step-100">
+                <span class="scale-val">100%</span>
+                <span class="scale-tick"></span>
+              </div>
+              <div class="scale-step step-66">
+                <span class="scale-val">66%</span>
+                <span class="scale-tick"></span>
+              </div>
+              <div class="scale-step step-33">
+                <span class="scale-val">33%</span>
+                <span class="scale-tick"></span>
+              </div>
+              <div class="scale-step step-0">
+                <span class="scale-val">0%</span>
+                <span class="scale-tick"></span>
+              </div>
             </div>
 
-            <div class="tank-liquid" id="tank-liquid-fill" style="height: 42%;">
-              <div class="wave wave1"></div>
-              <div class="wave wave2"></div>
-              <div class="wave wave3"></div>
+            <!-- Center Glass Cylinder Liquid Tank -->
+            <div class="tank-container">
+              <div class="glass-glare"></div>
+              <div class="tank-level-line line-100"></div>
+              <div class="tank-level-line line-66"></div>
+              <div class="tank-level-line line-33"></div>
+
+              <div class="tank-liquid" id="tank-liquid-fill" style="height: 42%;">
+                <div class="wave wave1"></div>
+                <div class="wave wave2"></div>
+                <div class="wave wave3"></div>
+              </div>
             </div>
 
-            <!-- Sensor Level Marker Overlays -->
-            <div class="sensor-marker high" id="marker-s3" style="bottom: 75%;">
-              <span class="marker-dot"></span>
-              <span class="marker-label">Sensor 3 (High Overflow - GPIO 32)</span>
-              <span class="marker-val" id="val-s3">OFF</span>
-            </div>
-            <div class="sensor-marker mid" id="marker-s2" style="bottom: 45%;">
-              <span class="marker-dot"></span>
-              <span class="marker-label">Sensor 2 (Medium - GPIO 35)</span>
-              <span class="marker-val" id="val-s2">ACTIVE</span>
-            </div>
-            <div class="sensor-marker low" id="marker-s1" style="bottom: 15%;">
-              <span class="marker-dot"></span>
-              <span class="marker-label">Sensor 1 (Low Baseline - GPIO 34)</span>
-              <span class="marker-val" id="val-s1">ACTIVE</span>
+            <!-- Right Sensor Tier Probes Track -->
+            <div class="tank-probes-track">
+              <!-- Tier 3: High Overflow -->
+              <div class="sensor-marker high" id="marker-s3">
+                <span class="probe-line"></span>
+                <span class="marker-dot"></span>
+                <div class="probe-info">
+                  <span class="probe-tag">Tier 3 (High)</span>
+                  <span class="marker-val" id="val-s3">DRY</span>
+                </div>
+              </div>
+
+              <!-- Tier 2: Mid Level -->
+              <div class="sensor-marker mid" id="marker-s2">
+                <span class="probe-line"></span>
+                <span class="marker-dot"></span>
+                <div class="probe-info">
+                  <span class="probe-tag">Tier 2 (Mid)</span>
+                  <span class="marker-val" id="val-s2">DRY</span>
+                </div>
+              </div>
+
+              <!-- Tier 1: Low Baseline -->
+              <div class="sensor-marker low" id="marker-s1">
+                <span class="probe-line"></span>
+                <span class="marker-dot"></span>
+                <div class="probe-info">
+                  <span class="probe-tag">Tier 1 (Low)</span>
+                  <span class="marker-val" id="val-s1">WET</span>
+                </div>
+              </div>
             </div>
           </div>
 
